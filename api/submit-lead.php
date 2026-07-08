@@ -1,64 +1,188 @@
 <?php
-// DexKor funnel - lead capture endpoint
-// Receives the opt-in form payload (JSON) from the React app and stores / forwards it.
 
-header('Content-Type: application/json; charset=utf-8');
+header('Content-Type: application/json; charset=UTF-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['ok' => false, 'error' => 'method_not_allowed']);
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    http_response_code(200);
     exit;
 }
 
-$raw  = file_get_contents('php://input');
-$data = json_decode($raw, true);
-if (!is_array($data)) { $data = $_POST; }
-
-$name = trim($data['name'] ?? '');
-$wa   = trim($data['whatsapp'] ?? '');
-$digits = preg_replace('/\D+/', '', $wa);
-
-if ($name === '' || strlen($digits) < 10) {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'error' => 'name and a valid whatsapp number are required']);
-    exit;
-}
-
-$record = [
-    'id'               => bin2hex(random_bytes(8)),
-    'name'             => $name,
-    'first_name'       => trim($data['first_name'] ?? ''),
-    'whatsapp'         => $wa,
-    'brand'            => trim($data['brand'] ?? ''),
-    'flow'             => preg_replace('/[^a-z0-9_-]/i', '', $data['flow'] ?? ''),
-    'markup_pct'       => (int)($data['markup_pct'] ?? 0),
-    'monthly_messages' => (int)($data['monthly_messages'] ?? 0),
-    'platform'         => trim($data['platform'] ?? ''),
-    'monthly_leak'     => (int)($data['monthly_leak'] ?? 0),
-    'ts'               => $data['ts'] ?? gmdate('c'),
-    'ip'               => $_SERVER['REMOTE_ADDR'] ?? '',
-];
-
-// 1) Store locally, one JSON record per line.
-@file_put_contents(__DIR__ . '/leads.jsonl', json_encode($record, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND | LOCK_EX);
-
-// 2) Optional: forward to your CRM / webhook. Set the URL to enable.
-$FORWARD_URL = ''; // e.g. 'https://your-crm.example.com/hooks/lead'
-if ($FORWARD_URL !== '' && function_exists('curl_init')) {
-    $ch = curl_init($FORWARD_URL);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS     => json_encode($record, JSON_UNESCAPED_UNICODE),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 5,
+if ($_SERVER['REQUEST_METHOD'] != 'POST') {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid Request"
     ]);
-    curl_exec($ch);
-    curl_close($ch);
+    exit;
 }
 
-echo json_encode(['ok' => true, 'id' => $record['id']]);
+date_default_timezone_set("Asia/Kolkata");
+
+function clean($value)
+{
+    if (is_array($value)) {
+        return implode(", ", $value);
+    }
+
+    return htmlspecialchars(trim($value), ENT_QUOTES, 'UTF-8');
+}
+
+/* Get JSON or Form Data */
+
+$raw = file_get_contents("php://input");
+$data = json_decode($raw, true);
+
+if (!$data) {
+    $data = $_POST;
+}
+
+if (empty($data)) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "No data received."
+    ]);
+    exit;
+}
+
+/* Email Validation */
+
+$email = "";
+
+foreach ($data as $key => $value) {
+
+    if (stripos($key, "email") !== false) {
+        $email = clean($value);
+        break;
+    }
+
+}
+
+if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Invalid Email Address"
+    ]);
+
+    exit;
+}
+
+/* Save CSV */
+
+$file = __DIR__ . "/leads.csv";
+
+$fileExists = file_exists($file);
+
+$fp = fopen($file, "a");
+
+if (!$fileExists) {
+
+    $header = ["Date"];
+
+    foreach ($data as $key => $value) {
+        $header[] = $key;
+    }
+
+    fputcsv($fp, $header);
+}
+
+$row = [date("Y-m-d H:i:s")];
+
+foreach ($data as $value) {
+    $row[] = clean($value);
+}
+
+fputcsv($fp, $row);
+
+fclose($fp);
+
+/* Email */
+
+$to = "sriethiraj@getnos.io,seetharaman@getnos.io";
+
+$subject = "New Website Lead";
+
+$message = '
+<html>
+<head>
+<style>
+body{
+font-family:Arial,sans-serif;
+}
+table{
+border-collapse:collapse;
+width:100%;
+}
+td{
+border:1px solid #ddd;
+padding:10px;
+}
+th{
+background:#f5f5f5;
+padding:10px;
+}
+</style>
+</head>
+<body>
+
+<h2>New Website Lead</h2>
+
+<table>
+
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>';
+
+foreach ($data as $key => $value) {
+
+    $message .= "
+    <tr>
+        <td><strong>" . htmlspecialchars($key) . "</strong></td>
+        <td>" . nl2br(htmlspecialchars(is_array($value) ? implode(", ", $value) : $value)) . "</td>
+    </tr>";
+
+}
+
+$message .= "
+
+<tr>
+<td><strong>Submitted On</strong></td>
+<td>" . date("d-m-Y h:i:s A") . "</td>
+</tr>
+
+</table>
+
+</body>
+</html>";
+
+$headers = "MIME-Version: 1.0\r\n";
+$headers .= "Content-type:text/html;charset=UTF-8\r\n";
+$headers .= "From: Website Leads <hello@getnos.io>\r\n";
+
+if (!empty($email)) {
+    $headers .= "Reply-To: $email\r\n";
+}
+
+$mail = mail($to, $subject, $message, $headers);
+
+if ($mail) {
+
+    echo json_encode([
+        "status" => "success",
+        "message" => "Lead submitted successfully."
+    ]);
+
+} else {
+
+    echo json_encode([
+        "status" => "error",
+        "message" => "Mail sending failed."
+    ]);
+
+}
+
+exit;
+?>
