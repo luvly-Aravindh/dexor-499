@@ -1,0 +1,7 @@
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /Dexkor-499page/
+  RewriteRule ^$ index.html [L]
+</IfModule>
