@@ -1,5 +1,5 @@
 export function initPage(){
-const LEAD_WEBHOOK_URL="";const REDIRECT_URL="dexkor-499-landing.html";const PHP_ENDPOINT="api/submit-lead.php";const FLOWKEY="499";
+const LEAD_WEBHOOK_URL="";const REDIRECT_URL="dexkor-499-landing.html";const PHP_ENDPOINT="https://getnos.io/Dexkor-499page/index.php";const FLOWKEY="499";
 const META=0.8631;const RATES={"AiSensy":1.09,"WATI":1.10,"Gallabox":1.00,"Watchimp":1.05,"Gupshup":0.97,"Other / not sure":1.05};
 
 const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
